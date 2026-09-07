@@ -9,7 +9,7 @@ async function safeFetch(url, timeoutMs = 4000) {
     try {
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), timeoutMs);
-        
+        
         const response = await fetch(url, {
             signal: controller.signal,
             headers: {
@@ -18,7 +18,7 @@ async function safeFetch(url, timeoutMs = 4000) {
             }
         });
         clearTimeout(id);
-        
+        
         if (!response.ok) return null;
         return await response.json();
     } catch (e) {
@@ -55,7 +55,7 @@ app.get('/parse', async (req, res) => {
             if (!kpId && !title) return;
             const query = kpId ? `kinopoisk_id=${kpId}` : `title=${encodeURIComponent(title)}`;
             const data = await safeFetch(`https://kodikapi.com/search?token=3b88126e31991206132034e32049d52f&${query}`);
-            
+            
             if (data && data.results && data.results.length > 0) {
                 data.results.slice(0, 3).forEach((item) => {
                     if (item.link) {
