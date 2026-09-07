@@ -1,1 +1,24 @@
+{
+  "server": {
+    "port": 7000
+  },
+  "filmix": {
+    "enable": true
+  },
+  "Kodik": {
+    "enable": true
+  },
+  "allserials": {
+    "enable": true
+  },
+  "VDBot": {
+    "enable": true
+  },
+  "collaps": {
+    "enable": true
+  },
+  "zetflix": {
+    "enable": true
+  }
+}
 
