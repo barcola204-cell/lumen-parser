@@ -28,53 +28,70 @@ app.get('/parse', async (req, res) => {
     const streams = [];
 
     const tasks = [
-        // Alloha
+        // 1. Alloha API (Прямой HLS поток)
         (async () => {
             if (!kpId) return;
             try {
                 const r = await fetchWithTimeout(`https://api.alloha.tv/?token=2b262a3c5da2f165f3e745020968b1&kp=${kpId}`);
                 if (r && r.ok) {
                     const data = await r.json();
-                    if (data?.data?.iframe) {
-                        streams.push({ name: 'Alloha', quality: 'Auto HLS', url: data.data.iframe });
-                    }
-                }
-            } catch (e) {}
-        })(),
-
-        // Kodik
-        (async () => {
-            if (!kpId && !title) return;
-            try {
-                const query = kpId ? `kinopoisk_id=${kpId}` : `title=${encodeURIComponent(title)}`;
-                const r = await fetchWithTimeout(`https://kodikapi.com/search?token=3b88126e31991206132034e32049d52f&${query}`);
-                if (r && r.ok) {
-                    const data = await r.json();
-                    if (data?.results?.length > 0) {
-                        data.results.slice(0, 3).forEach((item) => {
-                            streams.push({
-                                name: `Kodik (${item.translation?.title || 'Озвучка'})`,
-                                quality: item.quality || '720p',
-                                url: item.link
-                            });
+                    if (data?.data?.m3u8) {
+                        streams.push({
+                            name: 'Alloha (Прямой HLS)',
+                            quality: '1080p / Auto',
+                            url: data.data.m3u8
                         });
                     }
                 }
             } catch (e) {}
         })(),
 
-        // Voidboost / HDRezka
+        // 2. Collaps Direct Stream
         (async () => {
             if (!kpId) return;
-            streams.push({
-                name: 'HDRezka / Voidboost',
-                quality: 'Auto HLS',
-                url: `https://voidboost.net/embed/${kpId}`
-            });
+            try {
+                const r = await fetchWithTimeout(`https://api.collaps.org/m3u8/index/kp/${kpId}`);
+                if (r && r.ok) {
+                    const data = await r.json();
+                    if (data?.m3u8) {
+                        streams.push({
+                            name: 'Collaps (Прямой HLS)',
+                            quality: '1080p',
+                            url: data.m3u8
+                        });
+                    }
+                }
+            } catch (e) {}
+        })(),
+
+        // 3. Открытый шлюз Kinopoisk HLS
+        (async () => {
+            if (!kpId) return;
+            try {
+                const testUrl = `https://stream.voidboost.cc/movie/${kpId}.m3u8`;
+                const r = await fetchWithTimeout(testUrl, { method: 'HEAD' });
+                if (r && r.ok) {
+                    streams.push({
+                        name: 'HDRezka / Voidboost (HLS Stream)',
+                        quality: 'Auto HLS',
+                        url: testUrl
+                    });
+                }
+            } catch (e) {}
         })()
     ];
 
     await Promise.allSettled(tasks);
+
+    // Фолбэк: Прямой резервный HLS манифест
+    if (streams.length === 0 && kpId) {
+        streams.push({
+            name: 'Lumen Direct HLS (Резерв)',
+            quality: 'Auto',
+            url: `https://vidsrc.stream/m3u8/${kpId}.m3u8`
+        });
+    }
+
     res.json(streams);
 });
 
