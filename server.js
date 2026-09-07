@@ -4,8 +4,8 @@ const cors = require('cors');
 const app = express();
 app.use(cors());
 
-// Безопасный fetch с поддержкой таймаута
-async function safeFetch(url, timeoutMs = 4000) {
+// Функция безопасного запроса с подменой User-Agent
+async function safeFetch(url, timeoutMs = 4500) {
     try {
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), timeoutMs);
@@ -18,7 +18,6 @@ async function safeFetch(url, timeoutMs = 4000) {
             }
         });
         clearTimeout(id);
-        
         if (!response.ok) return null;
         return await response.json();
     } catch (e) {
@@ -59,10 +58,11 @@ app.get('/parse', async (req, res) => {
             if (data && data.results && data.results.length > 0) {
                 data.results.slice(0, 3).forEach((item) => {
                     if (item.link) {
+                        var streamUrl = item.link.startsWith('//') ? 'https:' + item.link : item.link;
                         streams.push({
                             name: 'Kodik: ' + (item.translation?.title || 'Озвучка'),
                             quality: item.quality || '720p',
-                            url: item.link.startsWith('//') ? 'https:' + item.link : item.link
+                            url: streamUrl
                         });
                     }
                 });
@@ -75,7 +75,7 @@ app.get('/parse', async (req, res) => {
             const data = await safeFetch(`https://api.collaps.org/m3u8/index/kp/${kpId}`);
             if (data && data.m3u8) {
                 streams.push({
-                    name: 'Collaps (Прямой поток)',
+                    name: 'Collaps (1080p Direct)',
                     quality: '1080p',
                     url: data.m3u8
                 });
@@ -85,10 +85,10 @@ app.get('/parse', async (req, res) => {
 
     await Promise.allSettled(tasks);
 
-    // Фолбэк прямым HLS если API молчат
+    // ЧИСТЫЙ ФОЛБЭК БЕЗ МАРКДАУН-СКОБОК И МУСОРА В ССЫЛКЕ
     if (streams.length === 0 && kpId) {
         streams.push({
-            name: 'Lumen HLS Stream',
+            name: 'Lumen Universal Stream',
             quality: 'Auto HLS',
             url: 'https://vidsrc.stream/m3u8/' + kpId + '.m3u8'
         });
