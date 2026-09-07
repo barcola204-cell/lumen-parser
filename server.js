@@ -1,17 +1,26 @@
 const express = require('express');
 const cors = require('cors');
-const fetch = require('node-fetch');
 
 const app = express();
 app.use(cors());
 
-async function fetchWithTimeout(url, options = {}, timeout = 4000) {
-    const controller = new (require('events').EventEmitter)();
-    const timer = setTimeout(() => controller.emit('abort'), timeout);
+// Безопасный fetch с поддержкой таймаута
+async function safeFetch(url, timeoutMs = 4000) {
     try {
-        const res = await fetch(url, { ...options, signal: controller });
-        clearTimeout(timer);
-        return res;
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), timeoutMs);
+        
+        const response = await fetch(url, {
+            signal: controller.signal,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3.1 Mobile/15E148 Safari/604.1',
+                'Accept': 'application/json, text/plain, */*'
+            }
+        });
+        clearTimeout(id);
+        
+        if (!response.ok) return null;
+        return await response.json();
     } catch (e) {
         return null;
     }
@@ -22,73 +31,66 @@ app.get('/parse', async (req, res) => {
     const title = req.query.title;
 
     if (!kpId && !title) {
-        return res.status(400).json({ error: 'No parameters' });
+        return res.status(400).json({ error: 'No query parameters' });
     }
 
     const streams = [];
 
     const tasks = [
-        // 1. Alloha API (Прямой HLS поток)
+        // 1. Alloha API
         (async () => {
             if (!kpId) return;
-            try {
-                const r = await fetchWithTimeout(`https://api.alloha.tv/?token=2b262a3c5da2f165f3e745020968b1&kp=${kpId}`);
-                if (r && r.ok) {
-                    const data = await r.json();
-                    if (data?.data?.m3u8) {
-                        streams.push({
-                            name: 'Alloha (Прямой HLS)',
-                            quality: '1080p / Auto',
-                            url: data.data.m3u8
-                        });
-                    }
-                }
-            } catch (e) {}
+            const data = await safeFetch(`https://api.alloha.tv/?token=2b262a3c5da2f165f3e745020968b1&kp=${kpId}`);
+            if (data && data.data && data.data.m3u8) {
+                streams.push({
+                    name: 'Alloha (1080p HLS)',
+                    quality: 'Auto / 1080p',
+                    url: data.data.m3u8
+                });
+            }
         })(),
 
-        // 2. Collaps Direct Stream
+        // 2. Kodik API
         (async () => {
-            if (!kpId) return;
-            try {
-                const r = await fetchWithTimeout(`https://api.collaps.org/m3u8/index/kp/${kpId}`);
-                if (r && r.ok) {
-                    const data = await r.json();
-                    if (data?.m3u8) {
+            if (!kpId && !title) return;
+            const query = kpId ? `kinopoisk_id=${kpId}` : `title=${encodeURIComponent(title)}`;
+            const data = await safeFetch(`https://kodikapi.com/search?token=3b88126e31991206132034e32049d52f&${query}`);
+            
+            if (data && data.results && data.results.length > 0) {
+                data.results.slice(0, 3).forEach((item) => {
+                    if (item.link) {
                         streams.push({
-                            name: 'Collaps (Прямой HLS)',
-                            quality: '1080p',
-                            url: data.m3u8
+                            name: 'Kodik: ' + (item.translation?.title || 'Озвучка'),
+                            quality: item.quality || '720p',
+                            url: item.link.startsWith('//') ? 'https:' + item.link : item.link
                         });
                     }
-                }
-            } catch (e) {}
+                });
+            }
         })(),
 
-        // 3. Открытый шлюз Kinopoisk HLS
+        // 3. Collaps API
         (async () => {
             if (!kpId) return;
-            try {
-                const testUrl = `https://stream.voidboost.cc/movie/${kpId}.m3u8`;
-                const r = await fetchWithTimeout(testUrl, { method: 'HEAD' });
-                if (r && r.ok) {
-                    streams.push({
-                        name: 'HDRezka / Voidboost (HLS Stream)',
-                        quality: 'Auto HLS',
-                        url: testUrl
-                    });
-                }
-            } catch (e) {}
+            const data = await safeFetch(`https://api.collaps.org/m3u8/index/kp/${kpId}`);
+            if (data && data.m3u8) {
+                streams.push({
+                    name: 'Collaps (Прямой поток)',
+                    quality: '1080p',
+                    url: data.m3u8
+                });
+            }
         })()
     ];
 
     await Promise.allSettled(tasks);
 
-    // Фолбэк: Прямой резервный HLS манифест
+    // Фолбэк прямым HLS если API молчат
     if (streams.length === 0 && kpId) {
         streams.push({
-            name: 'Lumen Direct HLS (Резерв)',
-            quality: 'Auto',
-            url: `https://vidsrc.stream/m3u8/${kpId}.m3u8`
+            name: 'Lumen HLS Stream',
+            quality: 'Auto HLS',
+            url: 'https://vidsrc.stream/m3u8/' + kpId + '.m3u8'
         });
     }
 
@@ -96,4 +98,4 @@ app.get('/parse', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Running on port ${PORT}`));
+app.listen(PORT, () => console.log('Lumen Engine server online on port ' + PORT));
